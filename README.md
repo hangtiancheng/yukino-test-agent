@@ -94,7 +94,8 @@ inspect it, or `pnpm db:generate` / `pnpm db:migrate` for migration files.
 pnpm dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3002 (port 3002 avoids the local docker-compose Grafana
+on 3000).
 
 ### 5. (Optional) Run the demo target site
 
@@ -112,7 +113,7 @@ and run the pipeline.
 
 | Script                 | Description                                                                                            |
 | ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| `pnpm dev`             | Start the dev server on port 3000.                                                                     |
+| `pnpm dev`             | Start the dev server on port 3002.                                                                     |
 | `pnpm build`           | Production build (Vite + Nitro output in `.output`).                                                   |
 | `pnpm start`           | Run the production build.                                                                              |
 | `pnpm preview`         | Preview the production build.                                                                          |
