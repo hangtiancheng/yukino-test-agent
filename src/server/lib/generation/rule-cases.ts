@@ -919,6 +919,37 @@ function stateCasesForPoints(
   return out;
 }
 
+/** Collect the multi-word state labels across machines, longest first, so they
+ * can be stripped from a point's text before trigger matching. This mirrors the
+ * legacy STATUS_LABELS guard: a label such as "Pending payment" embeds the word
+ * "payment", which would otherwise let the trigger "Pay" match and fabricate a
+ * payment case for a point that merely references the pending-payment state.
+ *
+ * Only multi-word labels are stripped. Single-word labels ("Cancelled",
+ * "Completed", "Shipped", ...) double as the English action participle ("orders
+ * can be cancelled"), so removing them would erase legitimate trigger matches —
+ * unlike the Chinese labels ("已取消" vs the bare verb "取消"), which are
+ * morphologically distinct from their triggers. */
+function collectStateLabels(machines: StateMachineSpec[]): string[] {
+  const labels = new Set<string>();
+  for (const sm of machines) {
+    for (const st of sm.states || []) {
+      if (st.label && /\s/.test(st.label)) labels.add(st.label);
+    }
+  }
+  return [...labels].sort((a, b) => b.length - a.length);
+}
+
+/** Case-insensitively remove every state label from `text`, longest first. */
+function stripStateLabels(text: string, labels: string[]): string {
+  let cleaned = text;
+  for (const label of labels) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    cleaned = cleaned.replace(new RegExp(escaped, "gi"), "");
+  }
+  return cleaned;
+}
+
 /** Generate cases per test point: functional/negative/boundary/state with
  * parameters grounded in code facts. */
 export function generateRuleCasesForPoints(
@@ -931,6 +962,7 @@ export function generateRuleCasesForPoints(
   const requiredNames = requiredFieldNames(backend);
   const success = successText(frontend);
   const stateCases = stateCasesForPoints(machines, frontend);
+  const stateLabels = collectStateLabels(machines);
   const cases: GeneratedCase[] = [];
 
   for (const point of points) {
@@ -999,6 +1031,9 @@ export function generateRuleCasesForPoints(
     if (category === "state" && stateCases.length > 0) {
       const matched: GeneratedCase[] = [];
       const seenTitles = new Set<string>();
+      // Strip multi-word status labels first so a state copy in the point
+      // text (e.g. "Pending payment") cannot be mistaken for a trigger.
+      const triggerText = stripStateLabels(text, stateLabels);
       for (const [, sc] of stateCases) {
         // Template title format: "<Module>: <Trigger> (<from> → <to>)"
         const titleTrigger = /:\s*([^(]+?)\s*\(/.exec(sc.title)?.[1]?.trim();
@@ -1007,7 +1042,7 @@ export function generateRuleCasesForPoints(
         // Word-start match so inflected forms ("shipped", "shipment",
         // "cancelled", "payment") still select their transition; the
         // quality gate dedupes clones shared by several points.
-        if (!new RegExp(`\\b${escaped}`, "i").test(text)) continue;
+        if (!new RegExp(`\\b${escaped}`, "i").test(triggerText)) continue;
         seenTitles.add(sc.title);
         matched.push(sc);
       }

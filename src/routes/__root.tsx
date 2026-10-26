@@ -1,8 +1,10 @@
 import {
   HeadContent,
+  Link,
   Outlet,
   Scripts,
   createRootRouteWithContext,
+  useRouter,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
@@ -10,6 +12,7 @@ import { TanStackDevtools } from "@tanstack/react-devtools";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 
 import { AppSidebar } from "#/components/AppSidebar";
+import { Button, buttonVariants } from "#/components/ui/button";
 import { Toaster } from "#/components/ui/sonner";
 import {
   SidebarInset,
@@ -47,6 +50,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
   }),
   shellComponent: RootDocument,
   component: RootLayout,
+  notFoundComponent: NotFound,
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
@@ -95,5 +99,28 @@ function RootLayout() {
       </SidebarInset>
       <Toaster richColors position="top-right" />
     </SidebarProvider>
+  );
+}
+
+function NotFound() {
+  const router = useRouter();
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-5 py-24 text-center">
+      <p className="text-primary text-6xl font-bold tracking-tight">404</p>
+      <div className="space-y-1.5">
+        <h1 className="text-2xl font-semibold">Page not found</h1>
+        <p className="text-muted-foreground mx-auto max-w-md text-sm">
+          The link may be broken, or the resource may have been deleted.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Link to="/dashboard" className={buttonVariants()}>
+          Back to dashboard
+        </Link>
+        <Button variant="outline" onClick={() => router.history.back()}>
+          Go back
+        </Button>
+      </div>
+    </div>
   );
 }
