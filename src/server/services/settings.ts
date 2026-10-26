@@ -176,14 +176,19 @@ export async function getSettingsInfo(): Promise<SettingsInfo> {
   const visionDefault = profiles.find(
     (p) => p.kind === "vision" && p.isDefault,
   );
+  // A profile is usable only when it pairs a model with an API key (mirrors
+  // legacy get_info: usable_vision / usable_text_fallback).
+  const usableVision = Boolean(
+    (visionDefault?.model || "").trim() && visionDefault?.apiKeyConfigured,
+  );
+  const usableTextFallback = Boolean(
+    (textDefault?.model || "").trim() && textDefault?.apiKeyConfigured,
+  );
   return {
     profiles,
-    textConfigured: Boolean(textDefault?.apiKeyConfigured && textDefault.model),
-    visionConfigured: Boolean(
-      (visionDefault?.model || textDefault?.model || "").trim() &&
-      (visionDefault?.apiKeyConfigured || textDefault?.apiKeyConfigured),
-    ),
-    visionUsesTextFallback: !visionDefault?.apiKeyConfigured,
+    textConfigured: usableTextFallback,
+    visionConfigured: usableVision || usableTextFallback,
+    visionUsesTextFallback: !usableVision,
     env: {
       llmApiKey: maskKey(serverEnv.llm.apiKey),
       llmApiKeyConfigured: Boolean(serverEnv.llm.apiKey),

@@ -805,6 +805,105 @@ function genericPointCase(
   });
 }
 
+/** Words that mark a list-page filter/query point rather than a create form. */
+const LIST_FILTER_WORDS = [
+  "filter",
+  "query",
+  "search",
+  "reset",
+  "keyword",
+  "status",
+  "amount",
+  "minimum",
+  "maximum",
+  "min",
+  "max",
+  "sort",
+];
+
+function isListPage(page: Page | null): boolean {
+  return !!page && /list/i.test(page.route || "");
+}
+
+function isStatsPage(page: Page | null): boolean {
+  return !!page && /(statistic|stats|dashboard)/i.test(page.route || "");
+}
+
+/**
+ * List and statistics pages have no create form, so a test point that maps to
+ * one must never become a fill-and-submit case (there is nothing to submit, or
+ * the submit would hit the wrong endpoint). Instead the case opens the page and
+ * asserts the visible copy the point describes.
+ *
+ * - stats page  -> metric/copy check
+ * - list page   -> filter/query/reset when the point reads like a filter,
+ *                  otherwise a plain list smoke check
+ * - bulk action -> resolve the list page and smoke its entry point
+ */
+function listStatsPointCase(
+  point: PointInput,
+  page: Page,
+  backend: BackendResult,
+  opts: { kind: "stats" | "filter" | "list" | "bulk" },
+): GeneratedCase {
+  const label =
+    opts.kind === "stats"
+      ? "page metric check"
+      : opts.kind === "filter"
+        ? "list filter"
+        : opts.kind === "bulk"
+          ? "bulk action entry smoke"
+          : "list smoke";
+  const confidence = opts.kind === "list" ? 0.5 : 0.6;
+  const expected = pointExpected(
+    point,
+    page.name || "the page content renders",
+  );
+  const steps: StructuredStep[] = [openStep(page.route, page.name, 1)];
+  let order = 2;
+  const testData: Record<string, string> = {};
+  if (opts.kind === "filter") {
+    // Fill the page's filter fields (when the analyzer found any) and trigger
+    // the query; never fabricate a create-form submit. With no detected filter
+    // fields the case degrades to a plain open-and-assert smoke check.
+    const filterFields = pageFields(page).slice(0, 6);
+    if (filterFields.length > 0) {
+      for (const f of filterFields) {
+        const val = sampleValue(f.prop || f.label);
+        steps.push(fillStep(f, order, val));
+        testData[f.prop || f.label] = val;
+        order += 1;
+      }
+      const isReset = /reset/i.test(
+        `${point.title || ""} ${point.description || ""}`,
+      );
+      steps.push(submitStep(order, isReset ? "Reset" : "Search"));
+      order += 1;
+    }
+  }
+  steps.push(assertExpected(order, expected));
+  return newCase({
+    title: `${(point.title || page.name || "Page check").slice(0, 240)} (${label})`,
+    module: pointModule(point, page, backend),
+    type: POINT_TYPE[String(point.category || "functional")] ?? "positive",
+    priority: point.priority || "P1",
+    preconditions: [`The ${page.name} page is open`],
+    steps: steps.map((st) => st.action),
+    expectedResults: [expected],
+    structuredSteps: steps,
+    testData,
+    coverageRefs: {
+      endpointIds: [],
+      transitionIds: [],
+      ruleIds: [],
+      testPointIds: point.id ? [point.id] : [],
+    },
+    source: "rule",
+    confidence,
+    testPointId: point.id ?? null,
+  });
+}
+
 function stateCasesForPoints(
   machines: StateMachineSpec[],
   frontend: FrontendResult,
@@ -847,6 +946,49 @@ export function generateRuleCasesForPoints(
         (f.label && text.includes(f.label)) ||
         (f.prop && text.includes(f.prop)),
     );
+
+    const pointText = `${point.title || ""} ${point.description || ""} ${point.expected || ""}`;
+    const lowerPointText = pointText.toLowerCase();
+    const endpoint = String(point.endpoint || "");
+
+    // ---- Statistics page: verify stable metrics/copy, never a form submit ----
+    if (page && isStatsPage(page)) {
+      cases.push(listStatsPointCase(point, page, backend, { kind: "stats" }));
+      continue;
+    }
+
+    // ---- Bulk action (e.g. batch cancel): smoke the list-page entry; do not
+    // fabricate row-selection or API-injection steps ----
+    const isBulk =
+      /batch|bulk/i.test(endpoint) ||
+      /\b(batch|bulk)\b|select (the )?rows|checkbox/i.test(lowerPointText);
+    if (isBulk) {
+      const listPage =
+        page && isListPage(page)
+          ? page
+          : (frontend.pages.find((pg) => isListPage(pg) && pg.route) ?? null);
+      if (listPage) {
+        cases.push(
+          listStatsPointCase(point, listPage, backend, { kind: "bulk" }),
+        );
+        continue;
+      }
+    }
+
+    // ---- List page: filter/query/reset or smoke, never a create-form submit ----
+    if (page && isListPage(page)) {
+      const isFilter =
+        LIST_FILTER_WORDS.some((w) => lowerPointText.includes(w)) &&
+        (endpoint === "" ||
+          /^get\b/i.test(endpoint) ||
+          /reset/i.test(lowerPointText));
+      cases.push(
+        listStatsPointCase(point, page, backend, {
+          kind: isFilter ? "filter" : "list",
+        }),
+      );
+      continue;
+    }
 
     // ---- State flow: reuse BFS state cases ----
     // A point may name several transitions ("supports pay, ship and cancel"),

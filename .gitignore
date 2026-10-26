@@ -32,3 +32,4 @@ mcp-todos.json
 
 # Compiled Go sample binary
 scripts/sample-src/order-demo
+.legacy

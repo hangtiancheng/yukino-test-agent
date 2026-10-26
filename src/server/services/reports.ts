@@ -9,7 +9,12 @@
 import { asc, eq } from "drizzle-orm";
 
 import { db } from "#/db";
-import { executionRecords, executionSteps, projects } from "#/db/schema";
+import {
+  executionRecords,
+  executionRequirements,
+  executionSteps,
+  projects,
+} from "#/db/schema";
 import { STAGE_LABELS } from "#/lib/enums";
 import { toFileUrl } from "#/server/lib/files";
 import { getCoverageMatrix } from "#/server/services/coverage";
@@ -223,6 +228,37 @@ function page(title: string, body: string): string {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${BASE_CSS}</style></head><body><div class="wrap">${body}</div></body></html>`;
 }
 
+/**
+ * Execution ids in scope for a requirement version, mirroring the coverage
+ * matrix scoping: `__none__` keeps project executions that are NOT linked to
+ * any requirement; a concrete id keeps only executions linked to it.
+ */
+async function requirementExecutionIds(
+  pid: string,
+  requirementId: string,
+): Promise<Set<string>> {
+  const projectRows = await db
+    .select({ id: executionRecords.id })
+    .from(executionRecords)
+    .where(eq(executionRecords.projectId, pid));
+  const projectIds = projectRows.map((r) => r.id);
+  const links = await db
+    .select()
+    .from(executionRequirements)
+    .where(eq(executionRequirements.projectId, pid));
+  if (requirementId === "__none__") {
+    const linked = new Set(
+      links.filter((l) => l.requirementId).map((l) => l.executionId),
+    );
+    return new Set(projectIds.filter((id) => !linked.has(id)));
+  }
+  return new Set(
+    links
+      .filter((l) => l.requirementId === requirementId)
+      .map((l) => l.executionId),
+  );
+}
+
 export async function buildProjectReport(
   pid: string,
   opts: { requirementId?: string | null; workflowRunId?: string | null } = {},
@@ -256,6 +292,13 @@ export async function buildProjectReport(
 <table><thead><tr><th>Stage</th><th>Status</th><th>Result</th><th>Duration</th></tr></thead><tbody>${stageRows}</tbody></table>
 <h3 style="font-size:14px;margin:18px 0 6px">Case Review & Result Analysis</h3>
 <table><thead><tr><th>Case</th><th>Automation</th><th>Review</th><th>Score</th><th>Revisions</th><th>Execution</th><th>Root Cause</th><th>Analysis</th></tr></thead><tbody>${caseRows}</tbody></table>`;
+  }
+
+  // Scope the execution records by requirement version (legacy build_report
+  // filtered records by requirement, not just the coverage matrix).
+  if (opts.requirementId) {
+    const allowed = await requirementExecutionIds(pid, opts.requirementId);
+    ids = ids ? ids.filter((id) => allowed.has(id)) : [...allowed];
   }
 
   const records = await loadRecords(pid, ids);

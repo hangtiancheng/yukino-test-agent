@@ -272,6 +272,16 @@ function isDuplicate(kase: GeneratedCase, existing: GeneratedCase): boolean {
   ) {
     return false;
   }
+  // Cases from different test points are kept even when their steps match:
+  // otherwise same-page smoke cases collapse into one and a test point ends up
+  // with no case in the coverage matrix.
+  if (
+    kase.testPointId &&
+    existing.testPointId &&
+    kase.testPointId !== existing.testPointId
+  ) {
+    return false;
+  }
   return similarity(scenarioText(kase), scenarioText(existing)) > 0.95;
 }
 

@@ -355,6 +355,12 @@ export function buildCoverageMatrix(
   const machineSpecs: StateMachineSpec[] = structuredClone(
     input.machines || [],
   );
+  // Only verified transitions (those backed by a real status write site) are
+  // part of the coverage denominator; unverified guesses must not inflate the
+  // total or show up as "uncovered" noise.
+  for (const machine of machineSpecs) {
+    machine.transitions = (machine.transitions || []).filter((t) => t.verified);
+  }
   const transitions = machineSpecs.flatMap(
     (m) => (m.transitions || []) as unknown as Record<string, unknown>[],
   );

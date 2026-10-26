@@ -38,6 +38,37 @@ const ALLOWED_SELECTOR_TYPES = new Set([
   "testid",
 ]);
 
+/**
+ * The runner can only type, click and assert. Table row selection and API /
+ * data-injection steps are guaranteed to fail, so an LLM case containing one
+ * is rejected and handed back to rule generation (mirrors legacy
+ * `_has_unsupported_ui_step`).
+ */
+const UNSUPPORTED_UI_WORDS = [
+  "select the row",
+  "select row",
+  "selected row",
+  "select all",
+  "checkbox",
+  "check the box",
+  "tick the",
+  "api injection",
+  "inject data",
+  "inject via api",
+  "call the api",
+  "send request",
+];
+
+function hasUnsupportedUiStep(steps: StructuredStep[]): boolean {
+  for (const step of steps) {
+    const text =
+      `${step.action || ""} ${step.target || ""} ${step.uiSelector?.value || ""}`.toLowerCase();
+    if (UNSUPPORTED_UI_WORDS.some((word) => text.includes(word))) return true;
+    if (text.includes("batch-cancel")) return true;
+  }
+  return false;
+}
+
 function asCaseList(raw: unknown): Record<string, unknown>[] {
   let value: unknown = raw;
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -272,6 +303,7 @@ export async function generateLlmCasesForPoints(
 
       let steps = normalizeSteps(rc.structuredSteps);
       if (steps.length === 0) continue;
+      if (hasUnsupportedUiStep(steps)) continue;
       if (
         steps.some(
           (s) => !ALLOWED_SELECTOR_TYPES.has(String(s.uiSelector?.type || "")),

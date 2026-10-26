@@ -71,7 +71,9 @@ function resolveVariables(
 }
 
 function refreshRequested(step: StructuredStep): boolean {
-  return REFRESH_RE.test(`${step.action || ""} ${step.target || ""}`);
+  return REFRESH_RE.test(
+    `${step.action || ""} ${step.target || ""} ${step.uiSelector?.value || ""}`,
+  );
 }
 
 /** uiSelector -> Playwright selector. `route` is handled by the caller. */
@@ -112,6 +114,15 @@ function fallbackChain(step: StructuredStep): string[] {
   if (target) {
     chain.push(
       `button:has-text("${target}"), a:has-text("${target}"), [role="button"]:has-text("${target}")`,
+    );
+  }
+  // 2.1 Element Plus dropdown options (a select expands its options into a
+  // popper appended to <body>, so they are not reachable via the trigger).
+  if (target) {
+    chain.push(
+      `[role="option"]:has-text("${target}"), ` +
+        `.el-select-dropdown__item:has-text("${target}"), ` +
+        `.el-select-dropdown__item span:has-text("${target}")`,
     );
   }
   // 3. Target text anywhere on the page (excluding option/script/style)

@@ -28,7 +28,7 @@ const SET_STATUS_RE = /\.?\s*set\w*Status\s*\(\s*([^)]*?)\s*\)/;
 const METHOD_SIG_RE =
   /\b(public|private|protected)\s+[A-Za-z_<>,.[\]\s]+\s+(\w+)\s*\(/;
 const IF_RE = /\bif\s*\(([^{}]*)\)/;
-const THROW_RE = /\bthrow\b/;
+const GUARD_EXIT_RE = /\b(?:throw|continue|return|break)\b/;
 const STATUS_LITERAL_RE =
   /"([A-Z][A-Z0-9_]*)"|\b(?:[A-Z]\w+)?(?:Status|State)\s*\.\s*([A-Z][A-Z0-9_]*)/;
 
@@ -92,7 +92,14 @@ function extractStatusLiterals(guard: string): Set<string> {
   return out;
 }
 
+/**
+ * Negated guard: `!X.equals(...)`, `!"X".equals(...)` or
+ * `status != OrderStatus.X`.
+ */
 function isNegated(guard: string): boolean {
+  if (guard.includes("!=") && extractStatusLiterals(guard).size > 0) {
+    return true;
+  }
   return /!\s*(?:[\w."'()]+\.equals|"[A-Z_]+")/.test(guard);
 }
 
@@ -150,8 +157,9 @@ export function extractStateMachines(
         }
       }
 
-      // Nearest status-literal guard above, inside the same method,
-      // followed by a throw between guard and write site.
+      // Nearest status-literal guard above, inside the same method, that
+      // explicitly leaves the current flow (throw/continue/return/break)
+      // between the guard and the write site.
       let guardText: string | null = null;
       if (methodName) {
         for (let j = i - 1; j >= (methodStart ?? 0); j--) {
@@ -160,7 +168,7 @@ export function extractStateMachines(
             const cond = im[1];
             if (extractStatusLiterals(cond).size > 0) {
               const seg = lines.slice(j, i).join("\n");
-              if (THROW_RE.test(seg)) {
+              if (GUARD_EXIT_RE.test(seg)) {
                 guardText = cond.trim();
                 break;
               }

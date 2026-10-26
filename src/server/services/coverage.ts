@@ -14,6 +14,7 @@ import { db } from "#/db";
 import {
   executionRecords,
   executionRequirements,
+  requirementCases,
   testCases,
 } from "#/db/schema";
 import { buildCoverageMatrix } from "#/server/lib/coverage";
@@ -21,6 +22,7 @@ import type { CoverageCaseInput, CoverageMatrix } from "#/server/lib/coverage";
 import {
   getGenerationContext,
   getProjectOr404,
+  inList,
 } from "#/server/services/projects";
 import { casesForRequirement } from "#/server/services/testcases";
 import type { TestCaseRow } from "#/server/services/testcases";
@@ -61,6 +63,23 @@ export async function getCoverageMatrix(
   if (requirementId && requirementId !== "__none__") {
     const pairs = await casesForRequirement(requirementId);
     caseRows = pairs.map((p) => p.row);
+  } else if (requirementId === "__none__") {
+    // Unmapped scope: project cases that are NOT linked to any requirement
+    // version (mirrors legacy _requirement_case_ids("__none__")).
+    const projectRows = (await db
+      .select()
+      .from(testCases)
+      .where(eq(testCases.projectId, pid))) as TestCaseRow[];
+    const projectIds = projectRows.map((r) => r.id);
+    const mapped = new Set<string>();
+    if (projectIds.length > 0) {
+      const links = await db
+        .select({ testCaseId: requirementCases.testCaseId })
+        .from(requirementCases)
+        .where(inList(requirementCases.testCaseId, projectIds));
+      for (const link of links) mapped.add(link.testCaseId);
+    }
+    caseRows = projectRows.filter((r) => !mapped.has(r.id));
   } else {
     caseRows = (await db
       .select()
@@ -83,16 +102,24 @@ export async function getCoverageMatrix(
       .select()
       .from(executionRequirements)
       .where(eq(executionRequirements.projectId, pid));
-    const allowed = new Set(
-      links
-        .filter((link) =>
-          requirementId === "__none__"
-            ? !link.requirementId
-            : link.requirementId === requirementId,
-        )
-        .map((link) => link.executionId),
-    );
-    passedRecords = passedRecords.filter((record) => allowed.has(record.id));
+    if (requirementId === "__none__") {
+      // Unmapped scope: every project execution EXCEPT those linked to a
+      // requirement version. Executions with no link row are kept (legacy:
+      // project_record_ids - linked_ids where linked means requirementId set).
+      const linked = new Set(
+        links
+          .filter((link) => link.requirementId)
+          .map((link) => link.executionId),
+      );
+      passedRecords = passedRecords.filter((record) => !linked.has(record.id));
+    } else {
+      const allowed = new Set(
+        links
+          .filter((link) => link.requirementId === requirementId)
+          .map((link) => link.executionId),
+      );
+      passedRecords = passedRecords.filter((record) => allowed.has(record.id));
+    }
   }
 
   const caseById = new Map(caseRows.map((row) => [row.id, row]));

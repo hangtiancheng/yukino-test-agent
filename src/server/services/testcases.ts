@@ -241,7 +241,20 @@ export async function listCases(
     .where(eq(testCases.projectId, pid))
     .orderBy(asc(testCases.projectSeq))) as TestCaseRow[];
 
-  if (filters.requirementId) {
+  if (filters.requirementId === "__none__") {
+    // Unmapped scope: exclude every case already linked to some requirement
+    // version (mirrors legacy testcase_service "__none__" branch).
+    const projectIds = rows.map((r) => r.id);
+    const mapped = new Set<string>();
+    if (projectIds.length > 0) {
+      const links = await db
+        .select({ testCaseId: requirementCases.testCaseId })
+        .from(requirementCases)
+        .where(inList(requirementCases.testCaseId, projectIds));
+      for (const link of links) mapped.add(link.testCaseId);
+    }
+    rows = rows.filter((row) => !mapped.has(row.id));
+  } else if (filters.requirementId) {
     const mappings = await db
       .select({ testCaseId: requirementCases.testCaseId })
       .from(requirementCases)
