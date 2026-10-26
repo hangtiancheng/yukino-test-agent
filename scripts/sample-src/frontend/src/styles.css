@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+/*
+ * Every Lit component here renders into light DOM (createRenderRoot returns
+ * the host), so the Tailwind utilities compiled from this sheet apply to
+ * them. Custom elements are inline by default; make the app shells block.
+ */
+@layer base {
+  route-view,
+  order-create-page,
+  order-list-page,
+  text-field {
+    display: block;
+  }
+}

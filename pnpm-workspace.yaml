@@ -1,0 +1,11 @@
+allowBuilds:
+  "@google/genai": true
+  "@sentry/cli": true
+  esbuild: true
+  protobufjs: true
+  unrs-resolver: true
+
+minimumReleaseAge: 0
+
+packages:
+  - scripts/sample-src/frontend

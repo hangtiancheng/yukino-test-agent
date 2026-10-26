@@ -1,0 +1,34 @@
+# Dependencies
+node_modules
+
+# Builds
+dist
+dist-ssr
+.output
+.nitro
+.vinxi
+.tanstack
+.wrangler
+__unconfig*
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+*.local
+
+# Local data & execution artifacts
+data/
+outputs/
+coverage/
+playwright-report/
+test-results/
+
+# Misc
+.DS_Store
+todos.json
+mcp-todos.json
+
+# Compiled Go sample binary
+scripts/sample-src/order-demo

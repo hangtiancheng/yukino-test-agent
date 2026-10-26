@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Order System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900 antialiased">
+    <div
+      aria-hidden="true"
+      class="pointer-events-none fixed inset-0 overflow-hidden"
+    >
+      <div
+        class="absolute -top-40 left-1/2 h-120 w-200 -translate-x-1/2 rounded-full bg-linear-to-r from-indigo-200/50 via-sky-200/40 to-emerald-200/40 blur-3xl"
+      ></div>
+    </div>
+    <main class="relative mx-auto w-full max-w-3xl px-5 py-16 sm:py-24">
+      <span
+        class="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-linear-to-br from-indigo-500 to-indigo-600 shadow-lg shadow-indigo-500/30"
+      >
+        <svg
+          class="h-6 w-6 text-white"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          aria-hidden="true"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007Z"
+          />
+        </svg>
+      </span>
+      <h1 class="mt-6 text-3xl font-semibold tracking-tight text-slate-900">
+        Order System
+      </h1>
+      <p class="mt-2 text-sm text-slate-500">
+        Demo target site used to exercise the Yukino test agent.
+      </p>
+      <div
+        class="mt-8 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8"
+      >
+        <p class="text-sm leading-6 text-slate-500">
+          A small order management app with creation validation and status
+          transitions. Use it as the target URL when running test cases.
+        </p>
+        <div class="mt-6 flex flex-wrap gap-3">
+          <a
+            class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-indigo-600/25 transition hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 active:bg-indigo-700"
+            href="/orders/create"
+            >Create order</a
+          >
+          <a
+            class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 active:bg-slate-100"
+            href="/orders/list"
+            >Order list</a
+          >
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Order List</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900 antialiased">
+    <div
+      aria-hidden="true"
+      class="pointer-events-none fixed inset-0 overflow-hidden"
+    >
+      <div
+        class="absolute -top-40 left-1/2 h-120 w-200 -translate-x-1/2 rounded-full bg-linear-to-r from-indigo-200/50 via-sky-200/40 to-emerald-200/40 blur-3xl"
+      ></div>
+    </div>
+    <main class="relative mx-auto w-full max-w-3xl px-5 py-16 sm:py-20">
+      <h1 class="text-3xl font-semibold tracking-tight text-slate-900">
+        Order List
+      </h1>
+      <p class="mt-2 text-sm text-slate-500">
+        Manage order status through payment, shipping, and completion.
+      </p>
+      <div
+        class="mt-8 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8"
+      >
+        <div class="mb-5 flex items-center justify-between gap-3">
+          <span id="total" class="text-sm text-slate-500"
+            >Total of 0 items</span
+          >
+          <a
+            class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
+            href="/orders/create"
+          >
+            <svg
+              class="h-3.5 w-3.5 text-slate-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M12 4.5v15m7.5-7.5h-15"
+              />
+            </svg>
+            Create order
+          </a>
+        </div>
+        <div class="overflow-x-auto">
+          <table id="orderTable" class="w-full border-collapse text-sm">
+            <thead>
+              <tr>
+                <th
+                  class="border-b border-slate-200 px-4 py-3 text-left text-xs font-medium tracking-wider text-slate-500 uppercase"
+                >
+                  Order no.
+                </th>
+                <th
+                  class="border-b border-slate-200 px-4 py-3 text-left text-xs font-medium tracking-wider text-slate-500 uppercase"
+                >
+                  Receiver
+                </th>
+                <th
+                  class="border-b border-slate-200 px-4 py-3 text-left text-xs font-medium tracking-wider text-slate-500 uppercase"
+                >
+                  Amount
+                </th>
+                <th
+                  class="border-b border-slate-200 px-4 py-3 text-left text-xs font-medium tracking-wider text-slate-500 uppercase"
+                >
+                  Status
+                </th>
+                <th
+                  class="border-b border-slate-200 px-4 py-3 text-left text-xs font-medium tracking-wider text-slate-500 uppercase"
+                >
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div id="msg" class="hidden" role="status"></div>
+      </div>
+    </main>
+    <script>
+      const BADGE = `inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium`;
+      const BADGE_MUTED = `${BADGE} border-slate-200 bg-slate-100 text-slate-500`;
+      const STATUS_META = {
+        CREATED: {
+          label: "Pending payment",
+          badge: `${BADGE} border-blue-200/70 bg-blue-50 text-blue-600`,
+        },
+        PAID: {
+          label: "Paid",
+          badge: `${BADGE} border-emerald-200/70 bg-emerald-50 text-emerald-600`,
+        },
+        SHIPPED: {
+          label: "Shipped",
+          badge: `${BADGE} border-amber-200/70 bg-amber-50 text-amber-600`,
+        },
+        COMPLETED: {
+          label: "Completed",
+          badge: `${BADGE} border-emerald-200/70 bg-emerald-50 text-emerald-600`,
+        },
+        CANCELLED: { label: "Cancelled", badge: BADGE_MUTED },
+      };
+      const orders = [
+        {
+          orderNo: "ORD1001",
+          receiverName: "Alice",
+          amount: "100.00",
+          status: "CREATED",
+        },
+        {
+          orderNo: "ORD1002",
+          receiverName: "Bob",
+          amount: "200.00",
+          status: "PAID",
+        },
+        {
+          orderNo: "ORD1003",
+          receiverName: "Carol",
+          amount: "300.00",
+          status: "SHIPPED",
+        },
+        {
+          orderNo: "ORD1004",
+          receiverName: "David",
+          amount: "400.00",
+          status: "COMPLETED",
+        },
+      ];
+      // from = states the action is allowed from; to = resulting state.
+      // Mirrors the backend rules: pay only from CREATED, ship only from PAID,
+      // complete only from SHIPPED, cancel from CREATED or PAID.
+      const ALLOW = {
+        pay: { from: ["CREATED"], to: "PAID" },
+        ship: { from: ["PAID"], to: "SHIPPED" },
+        complete: { from: ["SHIPPED"], to: "COMPLETED" },
+        cancel: { from: ["CREATED", "PAID"], to: "CANCELLED" },
+      };
+      const SUCCESS_MSG = {
+        pay: "Payment successful",
+        ship: "Shipment successful",
+        complete: "Order completed",
+        cancel: "Order cancelled",
+      };
+      const TD = `border-b border-slate-100 px-4 py-3.5 align-middle`;
+      const BTN_ACTION = `inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 active:bg-indigo-200`;
+      const BTN_DANGER = `inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 active:bg-rose-200`;
+      const TOAST = `mt-5 rounded-xl border px-4 py-3 text-sm font-medium`;
+      const TOAST_SUCCESS = `${TOAST} border-emerald-200 bg-emerald-50 text-emerald-700`;
+      const TOAST_ERROR = `${TOAST} border-rose-200 bg-rose-50 text-rose-700`;
+      const ESCAPES = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      };
+      const escapeHtml = (value) =>
+        String(value).replace(/[&<>"']/g, (ch) => ESCAPES[ch]);
+
+      function actionButtons(o, i) {
+        if (o.status === "CREATED")
+          return `
+            <button class="${BTN_ACTION}" data-act="pay" data-i="${i}">Pay</button>
+            <button class="${BTN_DANGER}" data-act="cancel" data-i="${i}">Cancel</button>`;
+        if (o.status === "PAID")
+          return `
+            <button class="${BTN_ACTION}" data-act="ship" data-i="${i}">Ship</button>
+            <button class="${BTN_DANGER}" data-act="cancel" data-i="${i}">Cancel</button>`;
+        if (o.status === "SHIPPED")
+          return `<button class="${BTN_ACTION}" data-act="complete" data-i="${i}">Complete</button>`;
+        return "";
+      }
+      function render() {
+        const tbody = document.getElementById("tbody");
+        tbody.innerHTML = orders
+          .map((o, i) => {
+            const meta = STATUS_META[o.status] ?? {
+              label: o.status,
+              badge: BADGE_MUTED,
+            };
+            return `
+              <tr class="transition-colors hover:bg-slate-50/70">
+                <td class="${TD} font-mono text-xs text-slate-500">${escapeHtml(o.orderNo)}</td>
+                <td class="${TD} font-medium text-slate-800">${escapeHtml(o.receiverName)}</td>
+                <td class="${TD} tabular-nums text-slate-700">${escapeHtml(o.amount)}</td>
+                <td class="${TD}"><span class="${meta.badge}">${escapeHtml(meta.label)}</span></td>
+                <td class="${TD}">
+                  <div class="flex flex-wrap items-center gap-2">${actionButtons(o, i)}</div>
+                </td>
+              </tr>`;
+          })
+          .join("");
+        document.getElementById("total").textContent =
+          `Total of ${orders.length} items`;
+        document.querySelectorAll("[data-act]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            doAction(b.dataset.act, parseInt(b.dataset.i, 10));
+          });
+        });
+      }
+      function doAction(act, i) {
+        const o = orders[i];
+        const msgEl = document.getElementById("msg");
+        const rule = ALLOW[act];
+        if (!rule.from.includes(o.status)) {
+          msgEl.textContent = "Current status does not allow this action";
+          msgEl.className = TOAST_ERROR;
+          return;
+        }
+        o.status = rule.to;
+        msgEl.textContent = SUCCESS_MSG[act];
+        msgEl.className = TOAST_SUCCESS;
+        render();
+      }
+      const newOrder = sessionStorage.getItem("newOrder");
+      if (newOrder) {
+        orders.unshift(JSON.parse(newOrder));
+        sessionStorage.removeItem("newOrder");
+      }
+      if (sessionStorage.getItem("justCreated") === "1") {
+        const created = document.getElementById("msg");
+        created.textContent = "Order created successfully";
+        created.className = TOAST_SUCCESS;
+        sessionStorage.removeItem("justCreated");
+      }
+      render();
+    </script>
+  </body>
+</html>

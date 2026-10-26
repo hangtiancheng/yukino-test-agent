@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Create Order</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900 antialiased">
+    <div
+      aria-hidden="true"
+      class="pointer-events-none fixed inset-0 overflow-hidden"
+    >
+      <div
+        class="absolute -top-40 left-1/2 h-120 w-200 -translate-x-1/2 rounded-full bg-linear-to-r from-indigo-200/50 via-sky-200/40 to-emerald-200/40 blur-3xl"
+      ></div>
+    </div>
+    <main class="relative mx-auto w-full max-w-3xl px-5 py-16 sm:py-20">
+      <h1 class="text-3xl font-semibold tracking-tight text-slate-900">
+        Create Order
+      </h1>
+      <p class="mt-2 text-sm text-slate-500">
+        Fill in the delivery details to place a new order.
+      </p>
+      <div
+        class="mt-8 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8"
+      >
+        <form id="orderForm" novalidate class="space-y-5">
+          <div class="space-y-1.5">
+            <label
+              for="receiverName"
+              class="block text-sm font-medium text-slate-700"
+              >Receiver name</label
+            >
+            <input
+              id="receiverName"
+              placeholder="Enter receiver name"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/25 focus:outline-none"
+            />
+            <span class="block text-xs text-slate-400"
+              >Required, at most 20 characters.</span
+            >
+          </div>
+          <div class="space-y-1.5">
+            <label for="phone" class="block text-sm font-medium text-slate-700"
+              >Phone number</label
+            >
+            <input
+              id="phone"
+              placeholder="Enter phone number"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/25 focus:outline-none"
+            />
+            <span class="block text-xs text-slate-400"
+              >Required, 11 digits starting with 1.</span
+            >
+          </div>
+          <div class="space-y-1.5">
+            <label
+              for="address"
+              class="block text-sm font-medium text-slate-700"
+              >Address</label
+            >
+            <input
+              id="address"
+              placeholder="Enter address"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/25 focus:outline-none"
+            />
+            <span class="block text-xs text-slate-400"
+              >Required, at most 100 characters.</span
+            >
+          </div>
+          <div class="space-y-1.5">
+            <label for="amount" class="block text-sm font-medium text-slate-700"
+              >Amount</label
+            >
+            <input
+              id="amount"
+              placeholder="Enter amount"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/25 focus:outline-none"
+            />
+            <span class="block text-xs text-slate-400">Required.</span>
+          </div>
+          <div class="space-y-1.5">
+            <label for="remark" class="block text-sm font-medium text-slate-700"
+              >Remark</label
+            >
+            <input
+              id="remark"
+              placeholder="Enter remark"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/25 focus:outline-none"
+            />
+            <span class="block text-xs text-slate-400"
+              >Optional, at most 200 characters.</span
+            >
+          </div>
+          <div class="flex flex-wrap gap-3 pt-2">
+            <button
+              type="submit"
+              class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-indigo-600/25 transition hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 active:bg-indigo-700"
+            >
+              Submit
+            </button>
+            <a
+              class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 active:bg-slate-100"
+              href="/orders/list"
+              >Cancel</a
+            >
+          </div>
+        </form>
+        <div id="msg" class="hidden" role="status"></div>
+      </div>
+    </main>
+    <script>
+      const TOAST = `mt-6 rounded-xl border px-4 py-3 text-sm font-medium`;
+      const TOAST_SUCCESS = `${TOAST} border-emerald-200 bg-emerald-50 text-emerald-700`;
+      const TOAST_ERROR = `${TOAST} border-rose-200 bg-rose-50 text-rose-700`;
+
+      document
+        .getElementById("orderForm")
+        .addEventListener("submit", function (e) {
+          e.preventDefault();
+          const receiverName = document.getElementById("receiverName").value;
+          const phone = document.getElementById("phone").value;
+          const address = document.getElementById("address").value;
+          const amount = document.getElementById("amount").value;
+          const remark = document.getElementById("remark").value;
+          const msgEl = document.getElementById("msg");
+          function fail(text) {
+            msgEl.textContent = text;
+            msgEl.className = TOAST_ERROR;
+          }
+          if (!receiverName) return fail("Receiver name cannot be empty");
+          if (receiverName.length > 20)
+            return fail("Receiver name cannot exceed 20 characters");
+          if (!phone) return fail("Phone number cannot be empty");
+          if (!/^1[3-9]\d{9}$/.test(phone))
+            return fail("Phone number format is invalid");
+          if (!address) return fail("Address cannot be empty");
+          if (address.length > 100)
+            return fail("Address cannot exceed 100 characters");
+          if (!amount) return fail("Amount cannot be empty");
+          if (remark.length > 200)
+            return fail("Remark cannot exceed 200 characters");
+          const order = {
+            orderNo: `ORD${Date.now()}`,
+            receiverName,
+            amount,
+            remark,
+            status: "CREATED",
+          };
+          sessionStorage.setItem("newOrder", JSON.stringify(order));
+          sessionStorage.setItem("justCreated", "1");
+          msgEl.textContent = "Order created successfully";
+          msgEl.className = TOAST_SUCCESS;
+          setTimeout(function () {
+            location.href = "/orders/list";
+          }, 500);
+        });
+    </script>
+  </body>
+</html>

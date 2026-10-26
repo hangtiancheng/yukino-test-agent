@@ -1,0 +1,39 @@
+{
+  "bundler": "vite",
+  "projectName": "yukino-test-agent",
+  "mode": "file-router",
+  "typescript": true,
+  "packageManager": "npm",
+  "includeExamples": true,
+  "tailwind": true,
+  "projectPreset": "default",
+  "routerOnly": false,
+  "addOnOptions": {
+    "drizzle": {
+      "database": "postgresql"
+    }
+  },
+  "git": true,
+  "install": true,
+  "intent": true,
+  "version": 1,
+  "framework": "react",
+  "chosenAddOns": [
+    "eslint",
+    "nitro",
+    "tanstack-query",
+    "apollo-client",
+    "store",
+    "tRPC",
+    "table",
+    "t3env",
+    "shadcn",
+    "mcp",
+    "form",
+    "drizzle",
+    "db",
+    "compiler",
+    "sentry",
+    "events"
+  ]
+}
