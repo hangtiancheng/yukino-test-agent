@@ -240,20 +240,32 @@ export async function runCaseExecution(
         screenshotBefore: step.screenshotBefore,
         screenshotAfter: step.screenshotAfter,
         error: step.error,
+        evidence: step.evidence ?? {},
         durationMs: step.durationMs ?? 0,
       });
     }
 
+    // AI screenshot review (only when a vision model is available). A review
+    // failure must never overwrite the deterministic verdict: an execution
+    // that already passed in the browser stays passed (legacy P1-9), so the
+    // review runs in its own guard instead of the outer execution try/catch.
     let finalStatus: string = result.status;
-    // AI screenshot review (only when a vision model is available)
-    const review = await reviewExecution(
-      { title: caseDict.title, expectedResults: caseDict.expectedResults },
-      result.steps,
-      targetUrl,
-    );
-    if (review) {
-      await persistReview(executionId, review);
-      finalStatus = decideStatus(result.status, review.verdict);
+    try {
+      const review = await reviewExecution(
+        { title: caseDict.title, expectedResults: caseDict.expectedResults },
+        result.steps,
+        targetUrl,
+      );
+      if (review) {
+        await persistReview(executionId, review);
+        finalStatus = decideStatus(result.status, review.verdict);
+      }
+    } catch (reviewError) {
+      console.error(
+        `[executions] AI review failed for ${executionId}; keeping deterministic status ${result.status}`,
+        reviewError,
+      );
+      finalStatus = result.status;
     }
 
     // Backfill the record error message from the first failed step so the
@@ -885,6 +897,7 @@ export async function getExecutionSteps(eid: string) {
       screenshotBefore: toFileUrl(row.screenshotBefore),
       screenshotAfter: toFileUrl(row.screenshotAfter),
       error: row.error,
+      evidence: row.evidence ?? {},
       durationMs: row.durationMs,
     }));
 }
@@ -983,6 +996,7 @@ export async function llmReview(eid: string): Promise<ExecutionDict> {
       screenshotBefore: row.screenshotBefore,
       screenshotAfter: row.screenshotAfter,
       error: row.error,
+      evidence: row.evidence ?? {},
       durationMs: row.durationMs,
     }));
   const snapshot = record.testCaseSnapshot as {

@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { createHash } from "node:crypto";
 import { chromium } from "playwright";
 
 import type {
@@ -25,8 +26,17 @@ const REFRESH_RE = /refresh the page|refresh the browser|reload/i;
 /** Runtime variables: ${name} / ${name+1} / ${name-1} */
 const VARIABLE_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?:([+-])(\d+))?\}/g;
 const VARIABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** URL hint keywords in an expectation (legacy URL_HINT_RE). */
+const URL_HINT_RE = /URL|redirect|route|page address/i;
+/**
+ * URL paths inside an expectation: must start with a letter/underscore/brace
+ * so "20/21 characters" is never mistaken for a route (legacy URL_PATH_RE).
+ */
+const URL_PATH_RE = /(?<![\w])\/(?=[A-Za-z_{])[\w/{}.-]+/;
 
 const STEP_TIMEOUT_MS = 10_000;
+/** Per-selector visibility wait so slow renders do not false-red (legacy P1-7). */
+const PROBE_TIMEOUT_MS = 2_500;
 
 class StepError extends Error {
   category: ErrorCategory;
@@ -74,6 +84,40 @@ function refreshRequested(step: StructuredStep): boolean {
   return REFRESH_RE.test(
     `${step.action || ""} ${step.target || ""} ${step.uiSelector?.value || ""}`,
   );
+}
+
+/**
+ * Verifiable evidence for an input step (length/hash/match/preview), so the
+ * AI review can confirm long inputs without judging them from screenshots.
+ * Sensitive fields (passwords) record lengths and match only, never plaintext.
+ */
+function inputEvidence(
+  expected: string,
+  actual: string,
+  sensitive = false,
+): Record<string, unknown> {
+  const exp = String(expected || "");
+  const act = String(actual || "");
+  if (sensitive) {
+    return {
+      inputValueLength: exp.length,
+      actualValueLength: act.length,
+      valueMatch: act === exp,
+      sensitive: true,
+    };
+  }
+  let preview = act.replace(/\n/g, " ").replace(/\r/g, " ");
+  if (preview.length > 40) {
+    preview = `${preview.slice(0, 20)}...${preview.slice(-20)}`;
+  }
+  return {
+    inputValueLength: exp.length,
+    actualValueLength: act.length,
+    inputValueHash: createHash("sha256").update(exp, "utf8").digest("hex"),
+    actualValueHash: createHash("sha256").update(act, "utf8").digest("hex"),
+    valueMatch: act === exp,
+    actualValuePreview: preview,
+  };
 }
 
 /** uiSelector -> Playwright selector. `route` is handled by the caller. */
@@ -141,8 +185,10 @@ function fallbackChain(step: StructuredStep): string[] {
 interface LocatorLike {
   count(): Promise<number>;
   isVisible(): Promise<boolean>;
+  waitFor(options?: { state?: string; timeout?: number }): Promise<void>;
   click(options?: { timeout?: number }): Promise<void>;
   fill(value: string, options?: { timeout?: number }): Promise<void>;
+  inputValue(): Promise<string>;
 }
 
 interface PageLike {
@@ -159,9 +205,11 @@ async function findLocator(
     attempted.push(sel);
     try {
       const loc = page.locator(sel).first();
-      if ((await loc.count()) > 0 && (await loc.isVisible())) {
-        return { locator: loc, attempted };
-      }
+      // Auto-wait for the element to render instead of a one-shot count()
+      // probe: async renders a couple hundred ms slow otherwise produce a
+      // false SELECTOR_NOT_FOUND (legacy P1-7).
+      await loc.waitFor({ state: "visible", timeout: PROBE_TIMEOUT_MS });
+      return { locator: loc, attempted };
     } catch {
       continue;
     }
@@ -169,38 +217,97 @@ async function findLocator(
   return { locator: null, attempted };
 }
 
+/** Quoted visible-copy anchors in an expectation (straight + curly quotes). */
+function quotedAnchorsOf(text: string): string[] {
+  const anchors: string[] = [];
+  const re = new RegExp(QUOTE_ANCHOR_RE.source, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const anchor = m[1].trim();
+    if (anchor) anchors.push(anchor);
+  }
+  return anchors;
+}
+
+/** Current URL pathname, tolerant of non-URL strings. */
+function currentPathname(currentUrl: string): string {
+  try {
+    return new URL(currentUrl).pathname || "/";
+  } catch {
+    const m = /^[a-z][a-z0-9+.-]*:\/\/[^/]*(\/[^?#]*)?/i.exec(currentUrl);
+    return m?.[1] || "/";
+  }
+}
+
 /**
- * Three-layer assertion: URL -> quoted text anchors -> honest skipped.
+ * Path-only URL match with `{id}` placeholder support (legacy
+ * `_url_path_matches`). Full-segment matching avoids substring false greens
+ * such as `/order` matching `/orders`.
+ */
+function urlPathMatches(expectedPath: string, currentUrl: string): boolean {
+  const currentPath = currentPathname(currentUrl).replace(/\/+$/, "") || "/";
+  const expected = (expectedPath || "/").replace(/\/+$/, "") || "/";
+  const parts = expected.split(/\{[^/{}]+\}/);
+  const pattern = parts
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("[^/]+");
+  try {
+    return new RegExp(`^${pattern}$`).test(currentPath);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Layered assertion: URL and quoted text anchors are checked independently and
+ * every verifiable dimension must pass (legacy `_do_assert`). A URL hit alone
+ * never returns passed when a text anchor is missing — that would be a false
+ * green. Only an expectation with no verifiable anchor at all is skipped.
  * Returns [status, detail].
  */
 async function doAssert(
   page: { url: () => string; innerText: (selector: string) => Promise<string> },
   expected: string,
 ): Promise<["passed" | "failed" | "skipped", string]> {
-  // Layer 1: URL assertion
-  if (/URL|redirect|route|page address|\/[\w/]+/i.test(expected)) {
-    const pathMatch = /(\/[\w/{}]+)/.exec(expected);
-    if (pathMatch && page.url().includes(pathMatch[1])) {
-      return ["passed", `URL hit: ${pathMatch[1]}`];
-    }
+  const text = String(expected || "");
+  const pathMatch = URL_PATH_RE.exec(text);
+  const urlPath = pathMatch ? pathMatch[0] : "";
+  const urlRequired = Boolean(urlPath);
+  const anchors = quotedAnchorsOf(text);
+
+  let urlOk = true;
+  let urlDetail = "";
+  if (urlRequired) {
+    urlOk = urlPathMatches(urlPath, page.url());
+    urlDetail = urlOk
+      ? `URL hit: ${urlPath}`
+      : `URL not hit: ${urlPath} (current ${currentPathname(page.url())})`;
   }
-  // Layer 2: DOM text assertion via quoted anchors
-  const anchors: string[] = [];
-  const re = new RegExp(QUOTE_ANCHOR_RE.source, "g");
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(expected)) !== null) {
-    const anchor = m[1].trim();
-    if (anchor) anchors.push(anchor);
-  }
+
+  let anchorsOk = true;
+  let anchorDetail = "";
   if (anchors.length > 0) {
-    const text = await page.innerText("body");
-    const missing = anchors.filter((a) => !text.includes(a));
-    if (missing.length === 0) {
-      return ["passed", `Text anchors hit: ${anchors.join(", ")}`];
-    }
-    return ["failed", `Text anchors missing: ${missing.join(", ")}`];
+    const bodyText = await page.innerText("body");
+    const missing = anchors.filter((a) => !bodyText.includes(a));
+    anchorsOk = missing.length === 0;
+    anchorDetail = anchorsOk
+      ? `Text anchors hit: ${anchors.join(", ")}`
+      : `Text anchors missing: ${missing.join(", ")}`;
   }
-  // Layer 3: honest skipped — never a false green
+
+  if (urlRequired && !urlOk) return ["failed", urlDetail];
+  if (anchors.length > 0 && !anchorsOk) return ["failed", anchorDetail];
+  if (urlRequired && anchors.length > 0) {
+    return ["passed", `${urlDetail}; ${anchorDetail}`];
+  }
+  if (urlRequired) return ["passed", urlDetail];
+  if (anchors.length > 0) return ["passed", anchorDetail];
+  if (URL_HINT_RE.test(text)) {
+    return [
+      "skipped",
+      "Contains a URL hint but no verifiable path or text anchor",
+    ];
+  }
   return [
     "skipped",
     "No verifiable URL or quoted text anchor in the expectation; marked skipped instead of guessing",
@@ -301,6 +408,7 @@ export async function executeCase(
       let reloadEvidence: { navigationType: string; url: string } | null = null;
       let assertionDetail: string | null = null;
       let captureDetail: string | null = null;
+      let stepEvidence: Record<string, unknown> | null = null;
       try {
         if (stype === "ui_action" && step.uiSelector?.type === "route") {
           const route = step.uiSelector.value;
@@ -341,9 +449,31 @@ export async function executeCase(
               `Input not found; attempted chain: ${attempted.join(" | ")}`,
             );
           }
-          await locator.fill(resolveVariables(step.inputValue, variables), {
+          const expectedValue = resolveVariables(step.inputValue, variables);
+          await locator.fill(expectedValue, {
             timeout: STEP_TIMEOUT_MS,
           });
+          // Capture verifiable input evidence; a collection failure must not
+          // fail the step itself.
+          try {
+            const sensitiveText =
+              `${step.target || ""} ${step.action || ""} ${step.uiSelector?.value || ""}`.toLowerCase();
+            const sensitive =
+              sensitiveText.includes("password") ||
+              sensitiveText.includes("pwd");
+            const actualValue = await locator.inputValue();
+            stepEvidence = inputEvidence(expectedValue, actualValue, sensitive);
+          } catch (evidenceError) {
+            stepEvidence = {
+              inputValueLength: String(expectedValue).length,
+              valueMatch: null,
+              evidenceError: String(
+                evidenceError instanceof Error
+                  ? evidenceError.message
+                  : evidenceError,
+              ).slice(0, 200),
+            };
+          }
         } else if (stype === "capture") {
           const variable = String(step.variable || "").trim();
           const pattern = String(step.pattern || "").trim();
@@ -451,6 +581,7 @@ export async function executeCase(
         screenshotBefore: beforePath,
         screenshotAfter: afterPath,
         error,
+        evidence: stepEvidence ?? {},
         durationMs: Date.now() - startedAt,
       });
       // Stop on failure (no point running meaningless steps)

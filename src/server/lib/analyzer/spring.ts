@@ -125,6 +125,32 @@ function joinPath(prefix: string | null, segment: string | null): string {
   return `/${right}`.replace(/\/+$/, "") || "/";
 }
 
+/** HTTP verbs recognised in a method-level `@RequestMapping(method = ...)`. */
+const REQUEST_METHODS = new Set([
+  "GET",
+  "POST",
+  "PUT",
+  "DELETE",
+  "PATCH",
+  "HEAD",
+  "OPTIONS",
+]);
+
+/**
+ * Verb of a method-level `@RequestMapping`: reads the `method` attribute
+ * (`RequestMethod.GET`, `{GET, POST}`). Without one the mapping accepts every
+ * verb, so default to GET. Method-level `@RequestMapping` endpoints were
+ * previously missed entirely (legacy P2-8).
+ */
+function requestMappingVerb(annotationArgs: string): string {
+  const m = /RequestMethod\s*\.\s*(\w+)/.exec(annotationArgs);
+  if (m) {
+    const verb = m[1].toUpperCase();
+    if (REQUEST_METHODS.has(verb)) return verb;
+  }
+  return "GET";
+}
+
 function dedupeKeepOrder(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
 }
@@ -284,6 +310,9 @@ export function parseJavaFile(file: string, rel: string): BackendResult {
   let classPrefix: string | null = null;
   let className: string | null = null;
   let classKind: string | null = null;
+  // Line index of the class-level @RequestMapping so step 2 never re-reads it
+  // as a method-level endpoint.
+  let classMappingLine = -1;
   for (let i = 0; i < lines.length; i++) {
     const m = CLASS_DECL_RE.exec(lines[i]);
     if (m) {
@@ -293,6 +322,7 @@ export function parseJavaFile(file: string, rel: string): BackendResult {
         const cm = CLASS_MAPPING_RE.exec(lines[j]);
         if (cm) {
           classPrefix = extractPathValue(cm[1]);
+          classMappingLine = j;
           break;
         }
       }
@@ -303,10 +333,21 @@ export function parseJavaFile(file: string, rel: string): BackendResult {
   // 2) Endpoints: method-level mapping annotations + method name
   let epIdx = 0;
   for (let i = 0; i < lines.length; i++) {
+    let verb: string;
+    let segment: string | null;
     const mm = METHOD_MAPPING_RE.exec(lines[i]);
-    if (!mm) continue;
-    const verb = VERB_MAP[mm[1]] ?? "GET";
-    const segment = mm[2] ? extractPathValue(mm[2]) : "";
+    if (mm) {
+      verb = VERB_MAP[mm[1]] ?? "GET";
+      segment = mm[2] ? extractPathValue(mm[2]) : "";
+    } else if (i !== classMappingLine) {
+      // Method-level @RequestMapping(value = "...", method = RequestMethod.X).
+      const rm = CLASS_MAPPING_RE.exec(lines[i]);
+      if (!rm) continue;
+      verb = requestMappingVerb(rm[1] ?? "");
+      segment = extractPathValue(rm[1]);
+    } else {
+      continue;
+    }
     let methodName: string | null = null;
     let methodIdx = i;
     for (let j = i; j < Math.min(i + 5, lines.length); j++) {

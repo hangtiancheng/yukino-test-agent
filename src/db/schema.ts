@@ -101,6 +101,12 @@ export const requirements = pgTable(
   },
   (table) => [
     index("ix_requirements_project").on(table.projectId, table.createdAt),
+    // Enforce one version per project at the database level so concurrent
+    // creates cannot both pass the check-then-insert (legacy P2-7).
+    uniqueIndex("ux_requirements_project_version").on(
+      table.projectId,
+      table.version,
+    ),
   ],
 );
 
@@ -328,6 +334,8 @@ export const executionSteps = pgTable(
     screenshotBefore: varchar("screenshot_before", { length: 500 }),
     screenshotAfter: varchar("screenshot_after", { length: 500 }),
     error: text("error"),
+    /** Verifiable per-step evidence (input length/hash/match/preview). */
+    evidence: jsonb("evidence").$type<Record<string, unknown>>(),
     durationMs: integer("duration_ms").notNull().default(0),
   },
   (table) => [index("ix_execution_steps_exec").on(table.executionId)],

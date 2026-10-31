@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "demo-site": "node scripts/demo-site/server.mjs",
     "e2e": "dotenv -e .env.local -- tsx scripts/e2e.mts",
-    "lint": "eslint `",
+    "lint": "eslint . --fix --quiet",
     "format": "prettier -w . --experimental-cli",
     "check": "prettier --check .",
     "db:generate": "drizzle-kit generate",

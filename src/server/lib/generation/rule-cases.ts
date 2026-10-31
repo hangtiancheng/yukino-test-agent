@@ -200,7 +200,35 @@ function step(
 
 function sampleValue(fieldName: string): string {
   const key = (fieldName || "").toLowerCase().replace(/-/g, "_");
-  return FIELD_SAMPLE[key] ?? "test data";
+  const base = FIELD_SAMPLE[key] ?? "test data";
+  return uniqueSample(key, base);
+}
+
+/**
+ * Identifier-like fields get a per-call unique value so re-running a case
+ * against shared/persistent data does not collide with a previous run's
+ * record (legacy P2-3). Format is preserved (11-digit phone, ORD prefix,
+ * valid email/username); non-identifier fields such as amount stay fixed so
+ * boundary and count assertions keep working.
+ */
+let sampleSeq = 0;
+function uniqueSample(key: string, base: string): string {
+  sampleSeq += 1;
+  const stamp = `${Date.now()}${sampleSeq}`;
+  switch (key) {
+    case "phone":
+    case "mobile":
+      return `155${stamp.slice(-8)}`;
+    case "orderno":
+    case "order_no":
+      return `ORD${stamp.slice(-6)}`;
+    case "email":
+      return `test+${stamp.slice(-8)}@example.com`;
+    case "username":
+      return `john_doe_${stamp.slice(-6)}`;
+    default:
+      return base;
+  }
 }
 
 function successText(frontend: FrontendResult): string {
@@ -1199,7 +1227,7 @@ export function generateRuleCasesForPoints(
           if (sampleKey in FIELD_SAMPLE) {
             scenarios.unshift([
               "valid",
-              FIELD_SAMPLE[sampleKey],
+              sampleValue(sampleKey),
               suffix("valid format"),
             ]);
           }

@@ -284,6 +284,8 @@ export interface ExecutionStepRecord {
   screenshotBefore: string | null;
   screenshotAfter: string | null;
   error: string | null;
+  /** Verifiable per-step evidence (input length/hash/match/preview). */
+  evidence?: Record<string, unknown>;
   durationMs?: number;
 }
 

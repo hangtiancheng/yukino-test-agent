@@ -63,6 +63,23 @@ export function RequirementsTab({ projectId }: { projectId: string }) {
   }, [requirements, selectedId]);
 
   const selected = requirements.find((r) => r.id === selectedId) ?? null;
+  const [detailDirty, setDetailDirty] = useState(false);
+
+  // Guard version switching so unsaved PRD edits are never silently dropped
+  // when the detail panel remounts (legacy P2-1).
+  const selectVersion = (id: string) => {
+    if (id === selectedId) return;
+    if (
+      detailDirty &&
+      !window.confirm(
+        "You have unsaved PRD changes on this version. Discard them and switch?",
+      )
+    ) {
+      return;
+    }
+    setDetailDirty(false);
+    setSelectedId(id);
+  };
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
@@ -97,7 +114,7 @@ export function RequirementsTab({ projectId }: { projectId: string }) {
                 <button
                   key={requirement.id}
                   type="button"
-                  onClick={() => setSelectedId(requirement.id)}
+                  onClick={() => selectVersion(requirement.id)}
                   className={cn(
                     "flex flex-col gap-1 rounded-lg border px-3 py-2 text-left transition-colors",
                     active
@@ -133,6 +150,7 @@ export function RequirementsTab({ projectId }: { projectId: string }) {
           <RequirementDetail
             key={selected.id}
             requirement={selected}
+            onDirtyChange={setDetailDirty}
             onDeleted={() => setSelectedId(null)}
           />
         ) : (
@@ -163,9 +181,11 @@ export function RequirementsTab({ projectId }: { projectId: string }) {
 function RequirementDetail({
   requirement,
   onDeleted,
+  onDirtyChange,
 }: {
   requirement: RequirementDict;
   onDeleted: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -173,6 +193,9 @@ function RequirementDetail({
   const [dragging, setDragging] = useState(false);
   const [content, setContent] = useState(requirement.content ?? "");
   const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useJobPoller(jobId);
   const finishedRef = useRef<string | null>(null);

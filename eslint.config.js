@@ -24,6 +24,7 @@ export default [
   },
   {
     ignores: [
+      ".legacy",
       "eslint.config.js",
       "prettier.config.js",
       ".output/**",

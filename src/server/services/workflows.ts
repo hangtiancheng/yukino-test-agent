@@ -1295,13 +1295,74 @@ function validateCase(
   return errors;
 }
 
+/** First route step of a case (legacy `_case_route`). */
+function caseRoute(caseDict: CaseDict): string {
+  for (const step of caseDict.structuredSteps || []) {
+    const selector = step.uiSelector;
+    if (selector?.type === "route") return String(selector.value || "");
+  }
+  return "";
+}
+
+function normalizeRoute(route: string | null | undefined): string {
+  const value = (route || "").trim().replace(/\/+$/, "");
+  return value || "/";
+}
+
+/** Positive cases that actually submit a form (legacy `_looks_like_form_submit`). */
+function looksLikeFormSubmit(caseDict: CaseDict): boolean {
+  const words = [
+    "submit",
+    "save",
+    "create",
+    "add",
+    "confirm",
+    "register",
+    "log in",
+    "login",
+    "sign in",
+  ];
+  return (caseDict.structuredSteps || []).some((step) => {
+    const text = `${step.action || ""} ${step.target || ""}`.toLowerCase();
+    return words.some((word) => text.includes(word));
+  });
+}
+
+/** Required fields of the single page a case targets (legacy `_required_fields`). */
+function requiredFieldsForRoute(
+  facts: Record<string, unknown>,
+  route: string,
+): { label: string; prop: string; placeholder: string }[] {
+  const wanted = normalizeRoute(route);
+  if (!wanted) return [];
+  const out: { label: string; prop: string; placeholder: string }[] = [];
+  const pages = (facts.pages || []) as Page[];
+  for (const page of pages) {
+    if (normalizeRoute(page.route) !== wanted) continue;
+    for (const form of page.forms || []) {
+      for (const field of form.fields || []) {
+        if (field.required) out.push(field);
+      }
+    }
+  }
+  return out;
+}
+
 function missingRequiredFields(
   caseDict: CaseDict,
   facts: Record<string, unknown>,
 ): string[] {
-  // State cases drive the list page (Pay/Ship/Cancel buttons); they never
-  // submit the create form, so required form fields do not apply.
-  if (String(caseDict.type || "") === "state") return [];
+  // Required-field completeness only makes sense for positive form-submit
+  // cases. Negative/boundary cases deliberately leave a field empty or
+  // invalid, and state/list cases never submit the create form. Required
+  // fields are scoped to the page the case actually navigates to — never the
+  // whole project's fields on every case (legacy P0-2).
+  const caseType = String(caseDict.type || "").toLowerCase();
+  if (caseType !== "positive" && caseType !== "functional") return [];
+  if (!looksLikeFormSubmit(caseDict)) return [];
+  const route = caseRoute(caseDict);
+  if (!route) return [];
+
   const steps = caseDict.structuredSteps || [];
   const corpusParts: string[] = [];
   for (const step of steps) {
@@ -1310,36 +1371,16 @@ function missingRequiredFields(
     corpusParts.push(`${selector} ${step.target || ""} ${step.action || ""}`);
   }
   const corpus = corpusParts.join(" ");
-  // Negative cases deliberately leave the tested field empty; its label or
-  // prop is named by the title/expectation ("Receiver name cannot be empty").
-  const isNegative = String(caseDict.type || "") === "negative";
-  const intentText = isNegative
-    ? `${caseDict.title || ""} ${(caseDict.expectedResults || []).join(" ")}`.toLowerCase()
-    : "";
+
   const missing: string[] = [];
-  const pages = (facts.pages || []) as Page[];
-  for (const page of pages) {
-    for (const form of page.forms || []) {
-      for (const field of form.fields || []) {
-        if (!field.required) continue;
-        const tokens = [field.placeholder, field.label, field.prop];
-        if (
-          isNegative &&
-          tokens.some((t) => t && intentText.includes(String(t).toLowerCase()))
-        ) {
-          continue;
-        }
-        if (!tokens.some((t) => t && corpus.includes(String(t)))) {
-          missing.push(
-            String(
-              field.label ||
-                field.prop ||
-                field.placeholder ||
-                "required field",
-            ),
-          );
-        }
-      }
+  for (const field of requiredFieldsForRoute(facts, route)) {
+    const tokens = [field.placeholder, field.label, field.prop];
+    if (!tokens.some((t) => t && corpus.includes(String(t)))) {
+      missing.push(
+        String(
+          field.label || field.prop || field.placeholder || "required field",
+        ),
+      );
     }
   }
   return missing;

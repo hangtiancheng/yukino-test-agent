@@ -14,7 +14,7 @@ import fs from "node:fs";
 import { getVisionClient } from "#/server/services/settings";
 import { LlmUnavailableError } from "#/server/lib/llm";
 
-import type { ChatMessageContentPart } from "#/server/lib/llm";
+import type { ChatMessageContentPart, LlmClient } from "#/server/lib/llm";
 import type {
   ExecutionStepRecord,
   ImageReview,
@@ -27,6 +27,10 @@ export const VERDICT_SUSPECT: ReviewVerdict = "suspect";
 export const VERDICT_UNAVAILABLE: ReviewVerdict = "unavailable";
 
 const MAX_IMAGES = 6;
+/** Failed executions need more context to judge (legacy vision_max_images_failed). */
+const MAX_IMAGES_FAILED = 10;
+/** Second-pass budget when the first pass lacked evidence (legacy MAX_IMAGES_EXTENDED). */
+const MAX_IMAGES_EXTENDED = 12;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 export interface VisionReviewResult {
@@ -105,6 +109,23 @@ function stepsText(steps: ExecutionStepRecord[]): string {
       let line = `${i + 1}. [${s.stepType}] ${s.action} (result: ${s.result})`;
       if (s.target) line += ` target: ${s.target}`;
       if (s.selectorUsed) line += ` execution evidence: ${s.selectorUsed}`;
+      const evidence = s.evidence || {};
+      if (Object.keys(evidence).length > 0) {
+        const bits: string[] = [];
+        if (evidence.inputValueLength !== undefined)
+          bits.push(`input length: ${evidence.inputValueLength}`);
+        if (evidence.actualValueLength !== undefined)
+          bits.push(`DOM actual length: ${evidence.actualValueLength}`);
+        if (evidence.valueMatch !== undefined)
+          bits.push(`value match: ${evidence.valueMatch}`);
+        if (evidence.sensitive)
+          bits.push("sensitive field: plaintext not recorded");
+        if (evidence.actualValuePreview)
+          bits.push(`value preview: ${evidence.actualValuePreview}`);
+        if (evidence.evidenceError)
+          bits.push(`evidence collection failed: ${evidence.evidenceError}`);
+        if (bits.length > 0) line += ` ${bits.join("; ")}`;
+      }
       if (s.error) line += ` error: ${s.error}`;
       return line;
     })
@@ -311,6 +332,29 @@ export async function visionEnabled(): Promise<boolean> {
   return client.available();
 }
 
+/**
+ * Screenshot budget for one review (legacy `_image_limit`): a base of 6,
+ * raised to 10 when any step did not pass, and to 12 on an extended
+ * second pass.
+ */
+function imageLimit(steps: ExecutionStepRecord[], extended = false): number {
+  let limit = Math.max(1, MAX_IMAGES);
+  if (steps.some((step) => step.result !== "passed")) {
+    limit = Math.max(limit, MAX_IMAGES_FAILED);
+  }
+  if (extended) limit = Math.max(limit, MAX_IMAGES_EXTENDED);
+  return limit;
+}
+
+/** Suspect only because evidence was thin — no concrete problem found. */
+function isEvidenceSuspect(result: VisionReviewResult): boolean {
+  return (
+    result.verdict === VERDICT_SUSPECT &&
+    result.issues.length === 0 &&
+    !result.imageReviews.some((item) => item.verdict === VERDICT_SUSPECT)
+  );
+}
+
 /** Review one execution; returns null when no vision model is configured. */
 export async function reviewExecution(
   kase: { title: string; expectedResults: string[] },
@@ -320,8 +364,8 @@ export async function reviewExecution(
   if (!(await visionEnabled())) return null;
   const client = await getVisionClient();
   const model = client.model;
-  const images = pickImages(steps);
-  if (images.length === 0) {
+  const allImages = pickImages(steps, Number.MAX_SAFE_INTEGER);
+  if (allImages.length === 0) {
     return {
       verdict: VERDICT_UNAVAILABLE,
       reason: "No usable screenshots; AI review cannot run",
@@ -332,6 +376,51 @@ export async function reviewExecution(
     };
   }
 
+  const limit = Math.min(imageLimit(steps), allImages.length);
+  const result = await reviewBatch(
+    client,
+    model,
+    kase,
+    steps,
+    targetUrl,
+    allImages.slice(0, limit),
+  );
+
+  // Two-pass review (legacy vision_two_pass_review): when the first pass is
+  // suspect purely for lack of evidence and more screenshots exist, re-review
+  // with an extended budget instead of leaving a false suspect.
+  if (isEvidenceSuspect(result) && allImages.length > limit) {
+    const extendedLimit = Math.min(imageLimit(steps, true), allImages.length);
+    if (extendedLimit > limit) {
+      const extended = await reviewBatch(
+        client,
+        model,
+        kase,
+        steps,
+        targetUrl,
+        allImages.slice(0, extendedLimit),
+      );
+      extended.reason =
+        `${extended.reason}; re-reviewed with additional screenshots`.slice(
+          0,
+          2000,
+        );
+      return extended;
+    }
+  }
+
+  return result;
+}
+
+/** Run a single vision review over an explicit set of screenshots. */
+async function reviewBatch(
+  client: LlmClient,
+  model: string,
+  kase: { title: string; expectedResults: string[] },
+  steps: ExecutionStepRecord[],
+  targetUrl: string,
+  images: PickedImage[],
+): Promise<VisionReviewResult> {
   const prompt = buildPrompt(kase, steps, targetUrl, images);
   const content: ChatMessageContentPart[] = [{ type: "text", text: prompt }];
   for (const img of images) {
